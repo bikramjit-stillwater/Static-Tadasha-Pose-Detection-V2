@@ -2,10 +2,13 @@
 Pose analyzer for arms-overhead Tadasana.
 
 Two entry points:
-  - analyze_video(path)  : process a video frame by frame, aggregate scores
+  - analyze_video(path)  : process video frame by frame, aggregate scores
   - analyze_image(path)  : process a single photo (same scoring + image generation)
 
-Both produce the same result dict structure for the UI.
+VISIBILITY RULE:
+  Each step has critical body parts (e.g. Stance needs feet).
+  Before scoring, we check if those landmarks have visibility >= 0.5.
+  If not, that step gets score 0 with a "not visible" message.
 """
 
 import cv2
@@ -14,8 +17,11 @@ import math
 from src.pose_detector import PoseDetector
 from src.scorer import calculate_angle, validate_tadasana
 
-# Below this best-frame score we flag the analysis as low-confidence
+# Best-frame score below this triggers a low-confidence flag
 MIN_QUALITY_SCORE = 50
+
+# Visibility threshold - landmarks below this are considered not visible
+VISIBILITY_THRESHOLD = 0.5
 
 POSE_LANDMARKS = {
     "nose": 0,
@@ -27,6 +33,19 @@ POSE_LANDMARKS = {
     "left_ankle": 27, "right_ankle": 28,
     "left_heel": 29, "right_heel": 30,
     "left_foot_index": 31, "right_foot_index": 32,
+}
+
+# Critical landmarks per step - if any are not visible, the step scores 0
+STEP_CRITICAL_LANDMARKS = {
+    1: ["left_ankle", "right_ankle", "left_hip", "right_hip"],                       # Stance
+    2: ["left_shoulder", "right_shoulder", "left_hip", "right_hip",                   # Body Balance
+        "left_ankle", "right_ankle"],
+    3: ["left_hip", "right_hip", "left_knee", "right_knee",                           # Legs & Knees
+        "left_ankle", "right_ankle"],
+    4: ["left_shoulder", "right_shoulder", "left_hip", "right_hip"],                  # Spine
+    5: ["left_shoulder", "right_shoulder", "left_elbow", "right_elbow",               # Shoulders & Arms
+        "left_wrist", "right_wrist"],
+    6: ["nose", "left_shoulder", "right_shoulder"],                                   # Head & Neck
 }
 
 
@@ -45,6 +64,35 @@ def angle_from_vertical(p_top, p_bottom):
     if dy == 0:
         return 90.0
     return math.degrees(math.atan2(abs(dx), abs(dy)))
+
+
+# -----------------------------------------------------------------------------
+# Visibility check
+# -----------------------------------------------------------------------------
+def landmark_is_visible(lms, idx):
+    """A landmark is visible if MediaPipe's confidence is high enough AND
+    it's actually inside the image (not extrapolated off-screen)."""
+    lm = lms[idx]
+    if lm.visibility < VISIBILITY_THRESHOLD:
+        return False
+    if lm.x < 0.0 or lm.x > 1.0 or lm.y < 0.0 or lm.y > 1.0:
+        return False
+    return True
+
+
+def get_step_visibility(lms):
+    """Return {step_num: bool} - True if all critical landmarks for that step
+    are visible enough to trust."""
+    result = {}
+    for step_num, names in STEP_CRITICAL_LANDMARKS.items():
+        all_visible = True
+        for name in names:
+            idx = POSE_LANDMARKS[name]
+            if not landmark_is_visible(lms, idx):
+                all_visible = False
+                break
+        result[step_num] = all_visible
+    return result
 
 
 # -----------------------------------------------------------------------------
@@ -140,21 +188,31 @@ def _crop_with_padding(img, points, padding_x_frac=0.15, padding_y_frac=0.15):
 
 
 def generate_step_images(frame, lms, step_results, save_dir):
-    """
-    Generate 6 cropped images (one per step) + 1 annotated full image.
-    Returns dict: { 'annotated': path, 'step_1': path, ..., 'step_6': path }
-    """
     h, w = frame.shape[:2]
     paths = {}
 
     pts = {name: extract_xy(lms, w, h, idx)
            for name, idx in POSE_LANDMARKS.items()}
 
-    step_passed = {s["step"]: s["passed"] for s in step_results}
+    # Step state: passed/failed/not_visible
+    def step_state(step_num):
+        for s in step_results:
+            if s["step"] == step_num:
+                if s.get("not_visible"):
+                    return "not_visible"
+                return "passed" if s["passed"] else "failed"
+        return "failed"
 
     annotated = frame.copy()
     GREEN = (0, 200, 0)
     RED = (0, 0, 220)
+    GRAY = (130, 130, 130)
+
+    def color_for(step_num):
+        st = step_state(step_num)
+        if st == "passed": return GREEN
+        if st == "not_visible": return GRAY
+        return RED
 
     def line(p1, p2, color, thick=4):
         cv2.line(annotated,
@@ -165,34 +223,29 @@ def generate_step_images(frame, lms, step_results, save_dir):
     def dot(p, color, r=6):
         cv2.circle(annotated, (int(p[0]), int(p[1])), r, color, -1, cv2.LINE_AA)
 
-    # Step 5 (Shoulders & Arms)
-    c5 = GREEN if step_passed.get(5) else RED
+    c5 = color_for(5)
     line(pts["left_shoulder"], pts["left_elbow"], c5)
     line(pts["left_elbow"], pts["left_wrist"], c5)
     line(pts["right_shoulder"], pts["right_elbow"], c5)
     line(pts["right_elbow"], pts["right_wrist"], c5)
     line(pts["left_shoulder"], pts["right_shoulder"], c5)
 
-    # Step 4 (Spine)
-    c4 = GREEN if step_passed.get(4) else RED
+    c4 = color_for(4)
     mid_sh = midpoint(pts["left_shoulder"], pts["right_shoulder"])
     mid_hp = midpoint(pts["left_hip"], pts["right_hip"])
     line(mid_sh, mid_hp, c4, thick=5)
 
-    # Step 3 (Legs & Knees)
-    c3 = GREEN if step_passed.get(3) else RED
+    c3 = color_for(3)
     line(pts["left_hip"], pts["left_knee"], c3)
     line(pts["left_knee"], pts["left_ankle"], c3)
     line(pts["right_hip"], pts["right_knee"], c3)
     line(pts["right_knee"], pts["right_ankle"], c3)
     line(pts["left_hip"], pts["right_hip"], c3)
 
-    # Step 1 (Stance)
-    c1 = GREEN if step_passed.get(1) else RED
+    c1 = color_for(1)
     line(pts["left_ankle"], pts["right_ankle"], c1, thick=3)
 
-    # Step 6 (Head)
-    c6 = GREEN if step_passed.get(6) else RED
+    c6 = color_for(6)
     dot(pts["nose"], c6, r=10)
 
     for name in ["left_shoulder", "right_shoulder", "left_elbow", "right_elbow",
@@ -204,7 +257,6 @@ def generate_step_images(frame, lms, step_results, save_dir):
     cv2.imwrite(annotated_path, annotated)
     paths["annotated"] = annotated_path
 
-    # Step crops
     feet_pts = [pts["left_ankle"], pts["right_ankle"],
                 pts["left_heel"], pts["right_heel"],
                 pts["left_foot_index"], pts["right_foot_index"]]
@@ -255,7 +307,10 @@ def aggregate_step_reports(all_reports):
     aggregated_steps = []
 
     for i in range(num_steps):
-        scores = []; issues_seen = []; fails = 0
+        scores = []
+        issues_seen = []
+        fails = 0
+        not_visible_count = 0
         cue = ""; name = ""; weight = 0
         for report in all_reports:
             s = report["steps"][i]
@@ -263,20 +318,28 @@ def aggregate_step_reports(all_reports):
             cue = s["cue"]; name = s["name"]; weight = s["weight"]
             if not s["passed"]:
                 fails += 1
+            if s.get("not_visible"):
+                not_visible_count += 1
             if s["issue"]:
                 issues_seen.append(s["issue"])
 
         avg = round(sum(scores) / len(scores), 1)
         fail_rate = round(fails / len(all_reports) * 100, 1)
+        not_visible_rate = round(not_visible_count / len(all_reports) * 100, 1)
         most_common = max(set(issues_seen), key=issues_seen.count) if issues_seen else None
+
+        # If body part was not visible in majority of frames, treat as not visible overall
+        not_visible_overall = not_visible_rate > 50
 
         aggregated_steps.append({
             "step": i + 1,
             "name": name, "cue": cue, "weight": weight,
             "average_score": avg,
             "fail_rate_percent": fail_rate,
+            "not_visible_rate_percent": not_visible_rate,
+            "not_visible": not_visible_overall,
             "issue": most_common,
-            "passed_overall": fail_rate < 25,
+            "passed_overall": fail_rate < 25 and not not_visible_overall,
         })
 
     finals = [r["final_score"] for r in all_reports]
@@ -295,10 +358,10 @@ def aggregate_step_reports(all_reports):
 
 
 def _single_frame_to_aggregated(report):
-    """Convert a single-frame validation result into the same shape as a
-    multi-frame aggregated result. Used for photo analysis."""
+    """Convert single-frame validation result into aggregated shape (for photos)."""
     aggregated_steps = []
     for s in report["steps"]:
+        not_vis = s.get("not_visible", False)
         aggregated_steps.append({
             "step": s["step"],
             "name": s["name"],
@@ -306,8 +369,10 @@ def _single_frame_to_aggregated(report):
             "weight": s["weight"],
             "average_score": round(s["score"], 1),
             "fail_rate_percent": 0.0 if s["passed"] else 100.0,
+            "not_visible_rate_percent": 100.0 if not_vis else 0.0,
+            "not_visible": not_vis,
             "issue": s["issue"],
-            "passed_overall": s["passed"],
+            "passed_overall": s["passed"] and not not_vis,
         })
     return {
         "final_score": report["final_score"],
@@ -341,8 +406,9 @@ def analyze_video(video_path, save_frames_dir=None):
 
         if results.pose_landmarks:
             lms = results.pose_landmarks.landmark
+            step_visibility = get_step_visibility(lms)
             features = build_features(lms, w, h)
-            report = validate_tadasana(features)
+            report = validate_tadasana(features, step_visibility)
             all_reports.append(report)
 
             if report["final_score"] > best_score:
@@ -382,9 +448,8 @@ def analyze_video(video_path, save_frames_dir=None):
     low_quality_msg = None
     if low_quality:
         low_quality_msg = (
-            f"The best frame in this video only scored {best_score}/100 "
-            f"(below the {MIN_QUALITY_SCORE} confidence threshold). "
-            "The pose may not have been clearly Tadasana. "
+            f"The best frame in this video only scored {best_score}/100. "
+            "Some body parts may not have been visible. "
             "For more accurate results, please re-record with: full body in frame, "
             "good lighting, and hold the pose steadily for a few seconds."
         )
@@ -402,13 +467,9 @@ def analyze_video(video_path, save_frames_dir=None):
 
 
 # -----------------------------------------------------------------------------
-# Photo analysis (NEW) - same scoring on a single image
+# Photo analysis - same logic as one frame of video
 # -----------------------------------------------------------------------------
 def analyze_image(image_path, save_frames_dir=None):
-    """
-    Analyze a single photo using the same rule engine as videos.
-    Returns the same result-dict shape so the UI works identically.
-    """
     detector = PoseDetector()
     frame = cv2.imread(image_path)
 
@@ -440,16 +501,16 @@ def analyze_image(image_path, save_frames_dir=None):
             "step_image_paths": {},
             "low_quality_warning": True,
             "low_quality_message": (
-                "No body pose was detected in this photo. Please retake with: "
-                "good lighting, full body in frame, and clear contrast against the background."
+                "No body pose was detected. Please retake with: good lighting, "
+                "full body in frame, and clear contrast against the background."
             ),
         }
 
     lms = results.pose_landmarks.landmark
+    step_visibility = get_step_visibility(lms)
     features = build_features(lms, w, h)
-    report = validate_tadasana(features)
+    report = validate_tadasana(features, step_visibility)
 
-    # Generate the 7 images from this single photo
     step_image_paths = {}
     annotated_path = None
     best_frame_path = None
@@ -468,8 +529,8 @@ def analyze_image(image_path, save_frames_dir=None):
     if low_quality:
         low_quality_msg = (
             f"This photo scored only {aggregated['final_score']}/100. "
-            "The pose may not have been clearly Tadasana, or the body wasn't fully visible. "
-            "Try retaking the photo with: full body in frame, good lighting, "
+            "Some body parts may not have been visible, or the pose may not have been "
+            "clearly Tadasana. Try retaking with: full body in frame, good lighting, "
             "and the pose held clearly."
         )
 
