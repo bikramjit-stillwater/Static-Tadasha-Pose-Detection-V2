@@ -1,12 +1,11 @@
 """
-Tadasana validator - visibility-aware version.
+Tadasana (Mountain Pose) validator - Arms Overhead Version.
 
-Each step can return one of three states:
-  - PASSED       (score >= passing threshold)
-  - FAILED       (evaluable but score below threshold)
-  - NOT EVALUABLE (critical landmarks not visible in this frame)
+Target pose: standing tall with arms raised straight overhead, palms together,
+feet together or hip-width, body stretched upward like a mountain.
 
-Final score is computed from EVALUABLE steps only, with weights renormalised.
+6 ground-truth steps, each scored 0-100 with quadratic curves.
+Compound penalties applied when multiple steps fail.
 """
 
 import math
@@ -42,69 +41,44 @@ def score_value(deviation, ideal_max, fail_min, curve="quadratic"):
     return round(100.0 * (1.0 - progress), 1)
 
 
-# -----------------------------------------------------------------------------
-# Step metadata
-# -----------------------------------------------------------------------------
-STEP_NAMES = {
-    1: "Stance",
-    2: "Body Balance",
-    3: "Legs & Knees",
-    4: "Spine",
-    5: "Shoulders & Arms",
-    6: "Head & Neck",
-}
-
-STEP_CUES = {
-    1: "Stand with feet together or at hip-distance - not wider",
-    2: "Press the four corners of each foot into the floor evenly",
-    3: "Lift kneecaps gently - straight but never locked",
-    4: "Lengthen the spine - tailbone tucks down, crown lifts up",
-    5: "Stretch arms straight up overhead, palms together, elbows straight",
-    6: "Keep the head balanced between the arms, gaze soft and forward",
-}
-
-# Per-step weights (sum to 1.0)
-STEP_WEIGHTS = {1: 0.10, 2: 0.15, 3: 0.20, 4: 0.20, 5: 0.25, 6: 0.10}
-
-# Friendly names for body parts when explaining what was not visible
-BODY_PART_DESCRIPTIONS = {
-    1: "feet",
-    2: "full body (shoulders, hips, ankles)",
-    3: "legs (hips to ankles)",
-    4: "torso (shoulders and hips)",
-    5: "arms (shoulders, elbows, wrists)",
-    6: "head and shoulders",
-}
-
-
-# -----------------------------------------------------------------------------
-# Per-step validators (only called when step is evaluable)
-# -----------------------------------------------------------------------------
+# =============================================================================
+# Step 1 - Stance: feet together or hip-width (NOT wider)
+# =============================================================================
 def check_stance(features):
     ratio = features["stance_ratio"]
     if ratio <= 1.1:
-        return {"step": 1, "passed": True, "score": 100.0, "issue": None}
+        return {
+            "step": 1, "name": "Stance",
+            "passed": True, "score": 100.0, "issue": None,
+            "cue": "Stand with feet together or at hip-distance",
+        }
     score = score_value(ratio - 1.1, 0.0, 0.6, "quadratic")
     return {
-        "step": 1,
-        "passed": ratio <= 1.25,
-        "score": score,
-        "issue": "Feet are too wide apart - bring them to hip-width or together",
+        "step": 1, "name": "Stance",
+        "passed": ratio <= 1.25, "score": score,
+        "issue": "Feet are too far apart - bring them to hip-width or together",
+        "cue": "Stand with feet together or at hip-distance",
     }
 
 
+# =============================================================================
+# Step 2 - Body Balance: weight centered, no leaning
+# =============================================================================
 def check_body_balance(features):
     body_lean = features["body_lean"]
-    score = score_value(body_lean, 0.02, 0.08, "quadratic")
-    passed = body_lean <= 0.035
+    score = score_value(body_lean, 0.025, 0.09, "quadratic")
+    passed = body_lean <= 0.04
     return {
-        "step": 2,
-        "passed": passed,
-        "score": score,
+        "step": 2, "name": "Body Balance",
+        "passed": passed, "score": score,
         "issue": None if passed else "Body is leaning - distribute weight evenly across both feet",
+        "cue": "Press the four corners of each foot into the floor evenly",
     }
 
 
+# =============================================================================
+# Step 3 - Legs & Knees: soft, NOT locked, NOT bent
+# =============================================================================
 def check_legs_knees(features):
     left = features["left_knee_bend"]
     right = features["right_knee_bend"]
@@ -112,89 +86,112 @@ def check_legs_knees(features):
     locked = left > 178 or right > 178
 
     if not bent and not locked:
-        return {"step": 3, "passed": True, "score": 100.0, "issue": None}
+        return {
+            "step": 3, "name": "Legs & Knees",
+            "passed": True, "score": 100.0, "issue": None,
+            "cue": "Lift kneecaps gently - straight but never locked",
+        }
     if locked and not bent:
         worst = max(left, right)
         return {
-            "step": 3, "passed": False,
+            "step": 3, "name": "Legs & Knees",
+            "passed": False,
             "score": score_value(worst - 178, 0.0, 6.0, "quadratic"),
             "issue": "Knees are locked - keep them soft and active, not rigid",
+            "cue": "Lift kneecaps gently - straight but never locked",
         }
     if bent and not locked:
         worst = min(left, right)
         return {
-            "step": 3, "passed": False,
+            "step": 3, "name": "Legs & Knees",
+            "passed": False,
             "score": score_value(168 - worst, 0.0, 18.0, "quadratic"),
             "issue": "Knees are bent - gently straighten without locking",
+            "cue": "Lift kneecaps gently - straight but never locked",
         }
     return {
-        "step": 3, "passed": False, "score": 30.0,
+        "step": 3, "name": "Legs & Knees",
+        "passed": False, "score": 30.0,
         "issue": "One knee bent and the other locked - aim for soft and even",
+        "cue": "Lift kneecaps gently - straight but never locked",
     }
 
 
+# =============================================================================
+# Step 4 - Spine: vertical and lengthened
+# =============================================================================
 def check_spine(features):
     spine_tilt = features["spine_tilt"]
-    score = score_value(spine_tilt, 2.0, 10.0, "quadratic")
-    passed = spine_tilt <= 4.0
+    score = score_value(spine_tilt, 2.5, 11.0, "quadratic")
+    passed = spine_tilt <= 5.0
     return {
-        "step": 4, "passed": passed, "score": score,
+        "step": 4, "name": "Spine",
+        "passed": passed, "score": score,
         "issue": None if passed else "Spine is not vertical - tailbone down, crown of head up",
+        "cue": "Lengthen the spine - tailbone tucks down, crown lifts up",
     }
 
 
+# =============================================================================
+# Step 5 - Shoulders & Arms: ARMS RAISED OVERHEAD (the cartoon pose)
+#  Sub-checks:
+#    (a) Wrists ABOVE shoulders (arms raised, not hanging)
+#    (b) Elbows straight (arms not bent)
+#    (c) Arms close together overhead (palms touching/near)
+#    (d) Symmetric (both arms equally raised)
+# =============================================================================
 def check_shoulders_arms(features):
-    shoulder_tilt = features["shoulder_tilt"]
-    h_left = features["left_arm_distance"]
-    h_right = features["right_arm_distance"]
+    # (a) Arms raised - wrist drop should be NEGATIVE (above shoulders)
+    # arm_drop: 0 = at shoulder, negative = above, positive = below
     v_left = features["left_arm_drop"]
     v_right = features["right_arm_drop"]
+    worst_v = max(v_left, v_right)  # the lower-hanging arm
 
-    # Sub-score 1: shoulders level
-    s_score = score_value(shoulder_tilt, 0.015, 0.07, "quadratic")
-
-    # Sub-score 2: arms close to body horizontally
-    worst_h = max(h_left, h_right)
-    h_score = score_value(worst_h, 0.05, 0.18, "quadratic")
-
-    # Sub-score 3: arms raised overhead
-    worst_v = min(v_left, v_right)
+    # Ideal: drop <= -0.25 (wrist clearly above shoulder, near head/above)
+    # Bad: drop > 0 (wrist below shoulder = arms hanging)
     if worst_v <= -0.25:
-        v_score = 100.0
+        raised_score = 100.0
     elif worst_v <= 0.0:
-        v_score = round(100.0 * ((-worst_v) / 0.25) ** 2, 1)
+        # Between shoulder and ideal: partial credit
+        raised_score = score_value(0.0 - worst_v, 0.25, 0.0, "quadratic")
+        # Note: this gives 0 at worst_v=0.0, 100 at worst_v=-0.25
+        # Need different formula - reverse it:
+        # The closer to -0.25 (or below), the better
+        raised_score = round(100.0 * ((-worst_v) / 0.25) ** 2, 1)
     else:
-        v_score = 0.0
+        # Wrist below shoulder - arms hanging - NOT Tadasana
+        raised_score = 0.0
 
-    # Sub-score 4: elbows straight
-    e_left = features.get("left_elbow_angle", 180)
-    e_right = features.get("right_elbow_angle", 180)
+    # (b) Elbows straight
+    e_left = features["left_elbow_angle"]
+    e_right = features["right_elbow_angle"]
     worst_elbow = min(e_left, e_right)
+    # Ideal: 165-180 (mostly straight). Bad: < 130
     if worst_elbow >= 165:
         elbow_score = 100.0
     else:
         elbow_score = score_value(165 - worst_elbow, 0.0, 35.0, "quadratic")
 
-    # Sub-score 5: arms close together overhead
-    arm_closeness = features.get("arm_closeness", 0.05)
+    # (c) Arms close together (horizontal distance between wrists, normalized)
+    arm_closeness = features["arm_closeness"]
+    # Ideal: <= 0.05 (wrists touching/very close)
+    # Acceptable: <= 0.20 (parallel arms shoulder-width)
     closeness_score = score_value(arm_closeness, 0.05, 0.40, "quadratic")
 
-    # Sub-score 6: symmetry
+    # (d) Symmetry (left vs right arm height difference)
     asymmetry = abs(v_left - v_right)
     symmetry_score = score_value(asymmetry, 0.04, 0.20, "quadratic")
 
+    # Weighted combine (raised position is most important)
     score = round(
-        s_score * 0.10 +
-        v_score * 0.40 +
-        elbow_score * 0.20 +
+        raised_score * 0.45 +
+        elbow_score * 0.25 +
         closeness_score * 0.15 +
         symmetry_score * 0.15,
         1,
     )
 
     issues = []
-    if shoulder_tilt > 0.025:
-        issues.append("Shoulders are uneven")
     if worst_v > -0.05:
         issues.append("Arms are not raised - stretch them straight up overhead")
     elif worst_v > -0.20:
@@ -209,117 +206,52 @@ def check_shoulders_arms(features):
     passed = len(issues) == 0
     issue = " - ".join(issues) if issues else None
 
-    return {"step": 5, "passed": passed, "score": score, "issue": issue}
-
-
-def check_head_neutral(features):
-    head_offset = features["head_offset"]
-    score = score_value(head_offset, 0.025, 0.10, "quadratic")
-    passed = head_offset <= 0.05
     return {
-        "step": 6, "passed": passed, "score": score,
-        "issue": None if passed else "Head is tilting forward or sideways - keep it balanced",
+        "step": 5, "name": "Shoulders & Arms",
+        "passed": passed, "score": score,
+        "issue": issue,
+        "cue": "Stretch arms straight up overhead, palms together, elbows straight",
     }
 
 
-STEP_FUNCTIONS = {
-    1: check_stance,
-    2: check_body_balance,
-    3: check_legs_knees,
-    4: check_spine,
-    5: check_shoulders_arms,
-    6: check_head_neutral,
-}
+# =============================================================================
+# Step 6 - Head & Neck: balanced between the raised arms
+# =============================================================================
+def check_head_neutral(features):
+    head_offset = features["head_offset"]
+    score = score_value(head_offset, 0.03, 0.11, "quadratic")
+    passed = head_offset <= 0.06
+    return {
+        "step": 6, "name": "Head & Neck",
+        "passed": passed, "score": score,
+        "issue": None if passed else "Head is tilting - keep it balanced, gaze forward",
+        "cue": "Keep the head balanced between the arms, gaze soft and forward",
+    }
 
 
-# -----------------------------------------------------------------------------
-# Main validator with visibility handling
-# -----------------------------------------------------------------------------
-def validate_tadasana(features, step_visibility=None):
-    """
-    Run the 6-step validation, handling missing landmarks gracefully.
+# Step weights (sum to 1.0)
+STEP_WEIGHTS = {1: 0.10, 2: 0.15, 3: 0.20, 4: 0.20, 5: 0.25, 6: 0.10}
 
-    `step_visibility` is a dict {1: True/False, ...} indicating which
-    steps have all their critical landmarks visible.
 
-    Returns a dict containing:
-      - final_score: int 0-100 (from evaluable steps only) or None if no steps evaluable
-      - frame_evaluable: True if at least MIN_EVALUABLE_STEPS were evaluable
-      - steps: list of step result dicts (each marked evaluable True/False)
-      - issues: list of issue strings from FAILED EVALUABLE steps only
-      - visibility_issues: list of body parts not visible
-    """
-    if step_visibility is None:
-        step_visibility = {i: True for i in range(1, 7)}
+def validate_tadasana(features):
+    """Run 6-step validation with compound penalties."""
+    step_results = [
+        check_stance(features),
+        check_body_balance(features),
+        check_legs_knees(features),
+        check_spine(features),
+        check_shoulders_arms(features),
+        check_head_neutral(features),
+    ]
 
-    step_results = []
-    visibility_issues = []
-
-    for step_num in range(1, 7):
-        is_evaluable = step_visibility.get(step_num, True)
-
-        if not is_evaluable:
-            body_part = BODY_PART_DESCRIPTIONS[step_num]
-            step_results.append({
-                "step": step_num,
-                "name": STEP_NAMES[step_num],
-                "evaluable": False,
-                "passed": None,
-                "score": None,
-                "issue": f"Cannot evaluate - {body_part} not visible in frame",
-                "cue": STEP_CUES[step_num],
-                "weight": STEP_WEIGHTS[step_num],
-            })
-            visibility_issues.append(body_part)
-        else:
-            try:
-                result = STEP_FUNCTIONS[step_num](features)
-                result["name"] = STEP_NAMES[step_num]
-                result["evaluable"] = True
-                result["cue"] = STEP_CUES[step_num]
-                result["weight"] = STEP_WEIGHTS[step_num]
-                step_results.append(result)
-            except (KeyError, TypeError, ValueError):
-                # Feature was missing or invalid - treat as not evaluable
-                body_part = BODY_PART_DESCRIPTIONS[step_num]
-                step_results.append({
-                    "step": step_num,
-                    "name": STEP_NAMES[step_num],
-                    "evaluable": False,
-                    "passed": None,
-                    "score": None,
-                    "issue": f"Cannot evaluate - {body_part} not visible in frame",
-                    "cue": STEP_CUES[step_num],
-                    "weight": STEP_WEIGHTS[step_num],
-                })
-                visibility_issues.append(body_part)
-
-    # Calculate final score from evaluable steps only
-    evaluable = [s for s in step_results if s["evaluable"]]
-    MIN_EVALUABLE_STEPS = 4
-
-    frame_evaluable = len(evaluable) >= MIN_EVALUABLE_STEPS
-
-    if not evaluable:
-        return {
-            "final_score": None,
-            "frame_evaluable": False,
-            "steps": step_results,
-            "issues": [],
-            "visibility_issues": visibility_issues,
-        }
-
-    # Renormalize weights to sum to 1 across evaluable steps
-    total_weight = sum(s["weight"] for s in evaluable)
     base_score = 0.0
-    for s in evaluable:
-        renormalized = s["weight"] / total_weight
-        base_score += s["score"] * renormalized
+    for s in step_results:
+        s["weight"] = STEP_WEIGHTS[s["step"]]
+        base_score += s["score"] * s["weight"]
 
-    # Apply compound penalties to evaluable steps only
-    worst = min(s["score"] for s in evaluable)
-    very_bad = sum(1 for s in evaluable if s["score"] < 20)
-    critical = sum(1 for s in evaluable if s["score"] < 40)
+    worst = min(s["score"] for s in step_results)
+    very_bad = sum(1 for s in step_results if s["score"] < 20)
+    critical = sum(1 for s in step_results if s["score"] < 40)
 
     final_score = base_score
     if very_bad >= 2:
@@ -336,21 +268,18 @@ def validate_tadasana(features, step_visibility=None):
     if worst < 15:
         final_score = min(final_score, 45.0)
 
-    final_score = max(0, min(100, int(round(final_score))))
+    final_score = int(round(final_score))
+    final_score = max(0, min(100, final_score))
 
-    issues = [s["issue"] for s in step_results
-              if s["evaluable"] and s["issue"]]
+    issues = [s["issue"] for s in step_results if s["issue"]]
 
     return {
         "final_score": final_score,
-        "frame_evaluable": frame_evaluable,
         "steps": step_results,
         "issues": issues,
-        "visibility_issues": visibility_issues,
     }
 
 
-def score_tadasana(features, step_visibility=None):
-    """Backwards-compatible wrapper."""
-    report = validate_tadasana(features, step_visibility)
+def score_tadasana(features):
+    report = validate_tadasana(features)
     return report["final_score"], report["issues"]
