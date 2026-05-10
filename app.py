@@ -7,6 +7,9 @@ from src.pose_analyzer import analyze_video
 from src.feedback import get_gemini_feedback
 
 
+# =============================================================================
+# Page config
+# =============================================================================
 st.set_page_config(
     page_title="Tadasana Pose Analysis",
     page_icon="🧘",
@@ -14,135 +17,214 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+# =============================================================================
+# Custom CSS - dashboard-style design
+# =============================================================================
 CUSTOM_CSS = """
 <style>
 section.main > div.block-container {
-    padding-top: 2rem; padding-bottom: 3rem;
-    padding-left: 2rem; padding-right: 2rem;
+    padding-top: 2rem;
+    padding-bottom: 3rem;
+    padding-left: 2rem;
+    padding-right: 2rem;
     max-width: 1400px;
 }
+
 * { box-sizing: border-box; }
+
+/* Hide Streamlit chrome */
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
 header[data-testid="stHeader"] {height: 0; visibility: hidden;}
 .stDeployButton {display: none;}
 
-.page-header { margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 2px solid #e8edf3; }
-.page-header h1 {
-    font-size: 1.75rem !important; font-weight: 700 !important;
-    color: #0f172a !important; margin: 0 !important;
-    line-height: 1.2; letter-spacing: -0.02em;
+/* Page header */
+.page-header {
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 2px solid #e8edf3;
 }
-.page-header .subtitle { font-size: 0.875rem; color: #64748b; margin-top: 0.35rem; }
-
-.stMarkdown h2 {
-    font-size: 1.15rem !important; font-weight: 600 !important;
+.page-header h1 {
+    font-size: 1.75rem !important;
+    font-weight: 700 !important;
     color: #0f172a !important;
-    margin-top: 1.5rem !important; margin-bottom: 0.75rem !important;
+    margin: 0 !important;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+}
+.page-header .subtitle {
+    font-size: 0.875rem;
+    color: #64748b;
+    margin-top: 0.35rem;
+}
+
+/* Section headings */
+.stMarkdown h2 {
+    font-size: 1.15rem !important;
+    font-weight: 600 !important;
+    color: #0f172a !important;
+    margin-top: 1.5rem !important;
+    margin-bottom: 0.75rem !important;
+    letter-spacing: -0.01em;
 }
 .stMarkdown h3 {
-    font-size: 0.95rem !important; font-weight: 600 !important;
+    font-size: 0.95rem !important;
+    font-weight: 600 !important;
     color: #334155 !important;
-    margin-top: 0.5rem !important; margin-bottom: 0.4rem !important;
+    margin-top: 0.5rem !important;
+    margin-bottom: 0.4rem !important;
 }
 .stMarkdown p, .stMarkdown li {
-    font-size: 0.875rem !important; line-height: 1.5 !important; color: #334155;
+    font-size: 0.875rem !important;
+    line-height: 1.5 !important;
+    color: #334155;
 }
 
-/* Visibility warning banner - PROMINENT */
-.vis-warning {
-    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-    border-left: 4px solid #d97706;
-    border-radius: 8px;
-    padding: 0.85rem 1.1rem;
-    margin-bottom: 1rem;
-    font-size: 0.88rem;
-    color: #78350f;
-}
-.vis-warning strong { color: #78350f; }
-.vis-warning ul { margin: 0.4rem 0 0 1.2rem; padding: 0; }
-.vis-warning li { margin: 0.15rem 0; }
-
+/* Score hero card */
 .score-hero {
     background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%);
-    border-radius: 14px; padding: 1.5rem;
+    border-radius: 14px;
+    padding: 1.5rem;
     color: white;
     box-shadow: 0 4px 20px rgba(15,23,42,0.15);
-    height: 100%; display: flex; flex-direction: column;
-    justify-content: space-between; min-height: 380px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    min-height: 380px;
 }
 .score-label {
-    font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em;
-    color: #94a3b8; font-weight: 600; margin-bottom: 0.4rem;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #94a3b8;
+    font-weight: 600;
+    margin-bottom: 0.4rem;
 }
 .score-value {
-    font-size: 4rem; font-weight: 800; line-height: 1;
-    color: white; letter-spacing: -0.04em;
+    font-size: 4rem;
+    font-weight: 800;
+    line-height: 1;
+    color: white;
+    letter-spacing: -0.04em;
 }
-.score-suffix { font-size: 1.5rem; color: #94a3b8; font-weight: 400; }
+.score-suffix {
+    font-size: 1.5rem;
+    color: #94a3b8;
+    font-weight: 400;
+}
 .score-band {
-    display: inline-block; padding: 0.25rem 0.7rem; border-radius: 100px;
-    font-size: 0.7rem; font-weight: 600; margin-top: 0.6rem;
-    text-transform: uppercase; letter-spacing: 0.05em;
+    display: inline-block;
+    padding: 0.25rem 0.7rem;
+    border-radius: 100px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    margin-top: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
 }
 .band-excellent { background: #10b981; color: white; }
 .band-good      { background: #3b82f6; color: white; }
 .band-mixed     { background: #f59e0b; color: white; }
 .band-poor      { background: #ef4444; color: white; }
-.band-noeval    { background: #6b7280; color: white; }
-
-.coverage-stat { font-size: 0.7rem; color: #94a3b8; margin-top: 0.5rem; }
 
 .issues-block { margin-top: 1.5rem; }
 .issues-block h4 {
-    font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em;
-    color: #94a3b8; font-weight: 600; margin: 0 0 0.6rem 0;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #94a3b8;
+    font-weight: 600;
+    margin: 0 0 0.6rem 0;
 }
 .issue-item {
-    background: rgba(255,255,255,0.08); border-left: 3px solid #fbbf24;
-    padding: 0.5rem 0.75rem; margin-bottom: 0.4rem; border-radius: 4px;
-    font-size: 0.82rem; color: #e2e8f0; line-height: 1.4;
+    background: rgba(255,255,255,0.08);
+    border-left: 3px solid #fbbf24;
+    padding: 0.5rem 0.75rem;
+    margin-bottom: 0.4rem;
+    border-radius: 4px;
+    font-size: 0.82rem;
+    color: #e2e8f0;
+    line-height: 1.4;
 }
 .no-issues {
-    background: rgba(16,185,129,0.15); border-left: 3px solid #10b981;
-    padding: 0.5rem 0.75rem; border-radius: 4px;
-    font-size: 0.82rem; color: #d1fae5;
+    background: rgba(16,185,129,0.15);
+    border-left: 3px solid #10b981;
+    padding: 0.5rem 0.75rem;
+    border-radius: 4px;
+    font-size: 0.82rem;
+    color: #d1fae5;
 }
 
+/* Annotated image card */
 .image-card {
-    background: white; border-radius: 14px; padding: 1rem;
-    border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-    height: 100%; min-height: 380px;
-    display: flex; flex-direction: column;
+    background: white;
+    border-radius: 14px;
+    padding: 1rem;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    height: 100%;
+    min-height: 380px;
+    display: flex;
+    flex-direction: column;
 }
 .image-card-header {
-    display: flex; justify-content: space-between; align-items: center;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     margin-bottom: 0.6rem;
 }
-.image-card-title { font-size: 0.95rem; font-weight: 600; color: #0f172a; }
-.image-card-legend { font-size: 0.7rem; color: #64748b; }
+.image-card-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #0f172a;
+}
+.image-card-legend {
+    font-size: 0.7rem;
+    color: #64748b;
+}
 .legend-dot {
-    display: inline-block; width: 8px; height: 8px;
-    border-radius: 50%; margin-right: 0.3rem; vertical-align: middle;
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 0.3rem;
+    vertical-align: middle;
 }
 
+/* IMAGE SIZE CONSTRAINTS */
 .annotated-wrap {
-    flex: 1; display: flex; align-items: center; justify-content: center;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     overflow: hidden;
 }
-.annotated-wrap [data-testid="stImage"] { width: auto !important; max-width: 100% !important; }
+.annotated-wrap [data-testid="stImage"] {
+    width: auto !important;
+    max-width: 100% !important;
+}
 .annotated-wrap [data-testid="stImage"] img {
-    max-height: 340px !important; width: auto !important;
-    object-fit: contain !important; border-radius: 8px;
-    margin: 0 auto; display: block;
+    max-height: 340px !important;
+    width: auto !important;
+    object-fit: contain !important;
+    border-radius: 8px;
+    margin: 0 auto;
+    display: block;
 }
 
+/* Step cards */
 .step-card {
-    background: white; border: 1px solid #e2e8f0;
-    border-radius: 12px; padding: 0.85rem; margin-bottom: 0.75rem;
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 0.85rem;
+    margin-bottom: 0.75rem;
     box-shadow: 0 1px 2px rgba(0,0,0,0.03);
     transition: all 0.15s ease;
-    height: 100%; display: flex; flex-direction: column;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
 }
 .step-card:hover {
     box-shadow: 0 2px 8px rgba(0,0,0,0.06);
@@ -150,112 +232,153 @@ header[data-testid="stHeader"] {height: 0; visibility: hidden;}
 }
 .step-card.passed { border-left: 3px solid #10b981; }
 .step-card.failed { border-left: 3px solid #ef4444; }
-.step-card.noeval {
-    border-left: 3px solid #9ca3af;
-    background: #fafafa;
-    opacity: 0.95;
-}
 
 .step-header {
-    display: flex; justify-content: space-between; align-items: center;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     margin-bottom: 0.5rem;
 }
-.step-name { font-size: 0.9rem; font-weight: 600; color: #0f172a; line-height: 1.2; }
-.step-card.noeval .step-name { color: #6b7280; }
+.step-name {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #0f172a;
+    line-height: 1.2;
+}
 .step-status-icon { font-size: 1.1rem; }
 
 .step-score-row {
-    display: flex; justify-content: space-between; align-items: baseline;
-    margin-bottom: 0.6rem; padding-bottom: 0.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 0.6rem;
+    padding-bottom: 0.5rem;
     border-bottom: 1px solid #f1f5f9;
 }
-.step-score-big { font-size: 1.4rem; font-weight: 700; line-height: 1; }
+.step-score-big {
+    font-size: 1.4rem;
+    font-weight: 700;
+    line-height: 1;
+}
 .step-score-big.pass { color: #10b981; }
 .step-score-big.fail { color: #ef4444; }
-.step-score-big.noeval { color: #9ca3af; font-size: 1.3rem; font-weight: 500; }
-.step-score-suffix { font-size: 0.75rem; color: #94a3b8; }
-.step-fail-rate { font-size: 0.7rem; color: #94a3b8; }
+.step-score-suffix {
+    font-size: 0.75rem;
+    color: #94a3b8;
+}
+.step-fail-rate {
+    font-size: 0.7rem;
+    color: #94a3b8;
+}
 
+/* STEP IMAGE SIZE CONSTRAINT */
 .step-image-wrap {
-    width: 100%; height: 180px;
-    display: flex; align-items: center; justify-content: center;
-    background: #f8fafc; border-radius: 6px; overflow: hidden;
+    width: 100%;
+    height: 180px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f8fafc;
+    border-radius: 6px;
+    overflow: hidden;
     margin-bottom: 0.5rem;
 }
 .step-image-wrap [data-testid="stImage"] {
-    width: 100% !important; height: 100% !important;
-    display: flex !important; align-items: center !important;
+    width: 100% !important;
+    height: 100% !important;
+    display: flex !important;
+    align-items: center !important;
     justify-content: center !important;
 }
 .step-image-wrap [data-testid="stImage"] img {
-    max-height: 180px !important; max-width: 100% !important;
-    width: auto !important; object-fit: contain !important;
+    max-height: 180px !important;
+    max-width: 100% !important;
+    width: auto !important;
+    object-fit: contain !important;
 }
-
-.noeval-placeholder {
-    width: 100%; height: 180px;
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    background: #f3f4f6; border: 1.5px dashed #d1d5db;
-    border-radius: 6px; margin-bottom: 0.5rem;
-    color: #9ca3af; font-size: 0.8rem;
-}
-.noeval-placeholder-icon { font-size: 1.6rem; margin-bottom: 0.3rem; }
 
 .step-issue {
-    background: #fef2f2; border-left: 2px solid #ef4444;
-    padding: 0.45rem 0.6rem; border-radius: 4px;
-    font-size: 0.75rem; color: #991b1b; line-height: 1.4;
+    background: #fef2f2;
+    border-left: 2px solid #ef4444;
+    padding: 0.45rem 0.6rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    color: #991b1b;
+    line-height: 1.4;
     margin-bottom: 0.35rem;
 }
 .step-passed-msg {
-    background: #f0fdf4; border-left: 2px solid #10b981;
-    padding: 0.45rem 0.6rem; border-radius: 4px;
-    font-size: 0.75rem; color: #166534; margin-bottom: 0.35rem;
-}
-.step-noeval-msg {
-    background: #f3f4f6; border-left: 2px solid #9ca3af;
-    padding: 0.45rem 0.6rem; border-radius: 4px;
-    font-size: 0.75rem; color: #4b5563; line-height: 1.4;
+    background: #f0fdf4;
+    border-left: 2px solid #10b981;
+    padding: 0.45rem 0.6rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    color: #166534;
     margin-bottom: 0.35rem;
 }
 .step-cue {
-    background: #f8fafc; border-left: 2px solid #3b82f6;
-    padding: 0.45rem 0.6rem; border-radius: 4px;
-    font-size: 0.72rem; color: #475569; line-height: 1.4;
+    background: #f8fafc;
+    border-left: 2px solid #3b82f6;
+    padding: 0.45rem 0.6rem;
+    border-radius: 4px;
+    font-size: 0.72rem;
+    color: #475569;
+    line-height: 1.4;
     font-style: italic;
 }
 .step-cue strong { font-style: normal; color: #1e3a5f; }
 
+/* Upload area */
 [data-testid="stFileUploader"] section {
     padding: 1rem !important;
-    border: 1.5px dashed #cbd5e1; border-radius: 8px;
-    background-color: #f8fafc; transition: border-color 0.15s;
+    border: 1.5px dashed #cbd5e1;
+    border-radius: 8px;
+    background-color: #f8fafc;
+    transition: border-color 0.15s;
 }
 [data-testid="stFileUploader"] section:hover {
-    border-color: #3b82f6; background-color: #f1f5f9;
+    border-color: #3b82f6;
+    background-color: #f1f5f9;
 }
 
+/* Buttons */
 .stButton > button {
-    background-color: #1e3a5f; color: white; font-weight: 600;
-    padding: 0.55rem 1.5rem; border-radius: 8px; border: none;
-    font-size: 0.875rem; transition: all 0.15s ease;
+    background-color: #1e3a5f;
+    color: white;
+    font-weight: 600;
+    padding: 0.55rem 1.5rem;
+    border-radius: 8px;
+    border: none;
+    font-size: 0.875rem;
+    transition: all 0.15s ease;
     box-shadow: 0 1px 2px rgba(0,0,0,0.05);
 }
 .stButton > button:hover {
-    background-color: #0f172a; color: white;
+    background-color: #0f172a;
+    color: white;
     transform: translateY(-1px);
     box-shadow: 0 4px 12px rgba(15,23,42,0.15);
 }
-.stButton > button[kind="primary"] { background-color: #2563eb; }
-.stButton > button[kind="primary"]:hover { background-color: #1d4ed8; }
-
-[data-testid="stVideo"] {
-    border-radius: 8px; overflow: hidden;
-    max-width: 480px; margin-bottom: 0.5rem;
+.stButton > button[kind="primary"] {
+    background-color: #2563eb;
 }
-[data-testid="stVideo"] video { max-height: 360px; border-radius: 8px; }
+.stButton > button[kind="primary"]:hover {
+    background-color: #1d4ed8;
+}
 
+/* Video player constrained */
+[data-testid="stVideo"] {
+    border-radius: 8px;
+    overflow: hidden;
+    max-width: 480px;
+    margin-bottom: 0.5rem;
+}
+[data-testid="stVideo"] video {
+    max-height: 360px;
+    border-radius: 8px;
+}
+
+/* Alerts */
 [data-testid="stAlert"] {
     padding: 0.55rem 0.85rem !important;
     border-radius: 6px !important;
@@ -263,29 +386,38 @@ header[data-testid="stHeader"] {height: 0; visibility: hidden;}
     margin-bottom: 0.5rem !important;
     line-height: 1.4 !important;
 }
+
+/* Captions */
 [data-testid="stCaptionContainer"] {
-    font-size: 0.78rem !important; color: #64748b !important;
+    font-size: 0.78rem !important;
+    color: #64748b !important;
     margin-bottom: 0.4rem;
 }
 
+/* Text area */
 .stTextArea textarea {
-    font-size: 0.85rem !important; line-height: 1.6 !important;
+    font-size: 0.85rem !important;
+    line-height: 1.6 !important;
     background-color: #fafbfc !important;
     border-radius: 8px !important;
     border: 1px solid #e2e8f0 !important;
-    padding: 0.85rem !important; color: #1e293b !important;
+    padding: 0.85rem !important;
+    color: #1e293b !important;
 }
 
+/* Dividers */
 hr {
-    margin: 1.25rem 0 !important; border: none !important;
+    margin: 1.25rem 0 !important;
+    border: none !important;
     border-top: 1px solid #e2e8f0 !important;
 }
 
+/* Mobile */
 @media (max-width: 768px) {
     .page-header h1 { font-size: 1.4rem !important; }
     .score-value { font-size: 3rem; }
     .score-hero, .image-card { min-height: auto; }
-    .step-image-wrap, .noeval-placeholder { height: 150px; }
+    .step-image-wrap { height: 150px; }
     .annotated-wrap [data-testid="stImage"] img { max-height: 280px !important; }
 }
 </style>
@@ -293,7 +425,10 @@ hr {
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 
-def get_output_dir(subdir):
+# =============================================================================
+# Helpers
+# =============================================================================
+def get_output_dir(subdir: str) -> str:
     base = os.environ.get("OUTPUT_DIR")
     if base:
         path = os.path.join(base, subdir)
@@ -302,7 +437,8 @@ def get_output_dir(subdir):
         try:
             os.makedirs(local, exist_ok=True)
             test = os.path.join(local, ".write_test")
-            with open(test, "w") as f: f.write("ok")
+            with open(test, "w") as f:
+                f.write("ok")
             os.remove(test)
             path = local
         except OSError:
@@ -311,21 +447,26 @@ def get_output_dir(subdir):
     return path
 
 
-def score_band(score):
-    if score is None: return ("Not evaluable", "band-noeval")
+def score_band(score: int):
     if score >= 85: return ("Excellent", "band-excellent")
     if score >= 70: return ("Good", "band-good")
     if score >= 50: return ("Mixed", "band-mixed")
     return ("Needs work", "band-poor")
 
 
+# =============================================================================
+# Page header
+# =============================================================================
 st.markdown("""
 <div class='page-header'>
   <h1>🧘 Tadasana Pose Analysis</h1>
-  <div class='subtitle'>Upload your video. Get a step-by-step alignment report with personalized feedback.</div>
+  <div class='subtitle'>Upload your Tadasana video and get a step-by-step alignment report with personalized feedback.</div>
 </div>
 """, unsafe_allow_html=True)
 
+# =============================================================================
+# Output dirs + session state
+# =============================================================================
 recordings_dir = get_output_dir("recordings")
 frames_dir = get_output_dir("extracted_frames")
 
@@ -338,30 +479,30 @@ for key, default in [
     if key not in st.session_state:
         st.session_state[key] = default
 
-# Upload section
+# =============================================================================
+# Upload section - VIDEO ONLY
+# =============================================================================
 if not st.session_state.analysis_result:
-    st.markdown("## Upload Your Pose")
+    st.markdown("## Upload Your Pose Video")
 
-    in1, in2 = st.columns(2)
-    with in1:
-        st.markdown("**Option 1 — Upload video**")
+    upload_col, _ = st.columns([2, 1])
+    with upload_col:
         uploaded_video = st.file_uploader(
-            "video", type=["mp4", "mov", "avi", "mkv"],
-            label_visibility="collapsed",
+            "Select a Tadasana video file (MP4, MOV, AVI, or MKV)",
+            type=["mp4", "mov", "avi", "mkv"],
         )
-        st.caption("Tip: full body in frame, good lighting, hold the pose steady.")
-    with in2:
-        st.markdown("**Option 2 — Take a photo**")
-        camera_file = st.camera_input("camera", label_visibility="collapsed")
-        st.caption("Stand back so your whole body fits in the frame.")
+        st.caption(
+            "Tip: record yourself in good lighting with your full body in frame, "
+            "and hold the pose steady for a few seconds."
+        )
 else:
     uploaded_video = None
-    camera_file = None
     if st.button("← Analyze a different video"):
         for k in ["video_path", "analysis_result", "gemini_feedback", "capture_done"]:
             st.session_state[k] = None
         st.rerun()
 
+# Save uploaded video
 if uploaded_video is not None:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     save_path = os.path.join(recordings_dir, f"uploaded_{timestamp}.mp4")
@@ -371,43 +512,17 @@ if uploaded_video is not None:
     st.session_state.capture_done = True
     st.success("✓ Video uploaded successfully.")
 
-if camera_file is not None:
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    image_path = os.path.join(frames_dir, f"captured_pose_{timestamp}.jpg")
-    with open(image_path, "wb") as f:
-        f.write(camera_file.read())
-    st.session_state.video_path = image_path
-    st.session_state.capture_done = True
-    st.success("✓ Snapshot captured successfully.")
-
+# Preview + analyze
 if st.session_state.video_path and not st.session_state.analysis_result:
     st.markdown("### Preview")
     pv1, _ = st.columns([2, 1])
     with pv1:
-        if st.session_state.video_path.lower().endswith((".mp4", ".mov", ".avi", ".mkv")):
-            st.video(st.session_state.video_path)
-        else:
-            st.image(st.session_state.video_path)
+        st.video(st.session_state.video_path)
 
     if st.button("🔍 Analyze Pose", type="primary"):
         with st.spinner("Analyzing pose and generating feedback..."):
             try:
-                if st.session_state.video_path.lower().endswith((".jpg", ".jpeg", ".png")):
-                    result = {
-                        "final_score": 0, "issues": [], "steps": [],
-                        "best_frame_path": st.session_state.video_path,
-                        "annotated_path": None, "step_image_paths": {},
-                        "low_quality_warning": True,
-                        "low_quality_message": (
-                            "Snapshot mode - for accurate scoring, please upload a "
-                            "short video (3-10 seconds) where you hold the pose."
-                        ),
-                        "visibility_issues": [],
-                        "frames_analyzable": 0, "frames_skipped": 0, "coverage_pct": 0,
-                    }
-                else:
-                    result = analyze_video(st.session_state.video_path, frames_dir)
-
+                result = analyze_video(st.session_state.video_path, frames_dir)
                 feedback_text = get_gemini_feedback(
                     result["final_score"], result["issues"],
                     steps=result.get("steps"),
@@ -422,37 +537,25 @@ if st.session_state.video_path and not st.session_state.analysis_result:
                     "annotated_path": None, "step_image_paths": {},
                     "low_quality_warning": True,
                     "low_quality_message": f"Analysis failed: {str(e)}",
-                    "visibility_issues": [],
-                    "frames_analyzable": 0, "frames_skipped": 0, "coverage_pct": 0,
                 }
                 st.session_state.gemini_feedback = (
                     f"Could not generate full pose feedback.\n\nReason: {str(e)}"
                 )
                 st.rerun()
 
-# Results
+# =============================================================================
+# Display results
+# =============================================================================
 if st.session_state.analysis_result:
     result = st.session_state.analysis_result
     score = result["final_score"]
     band_label, band_class = score_band(score)
 
-    # Visibility warning banner FIRST
-    visibility_issues = result.get("visibility_issues") or []
-    if visibility_issues:
-        items_html = "".join(f"<li>{v}</li>" for v in visibility_issues)
-        st.markdown(f"""
-        <div class='vis-warning'>
-          <strong>⚠ Some body parts were not visible enough to evaluate:</strong>
-          <ul>{items_html}</ul>
-          <em>For a complete analysis, re-record with your full body in the frame.</em>
-        </div>
-        """, unsafe_allow_html=True)
-
     if result.get("low_quality_warning"):
         st.warning(result.get("low_quality_message")
                    or "Low confidence in this analysis - please re-record.")
 
-    # Hero row
+    # ===== Hero row =====
     hero_left, hero_right = st.columns([1, 1.5])
 
     with hero_left:
@@ -461,32 +564,17 @@ if st.session_state.analysis_result:
             for issue in result["issues"][:3]:
                 issues_html += f"<div class='issue-item'>{issue}</div>"
         else:
-            issues_html = "<div class='no-issues'>✓ No major issues detected in evaluable steps</div>"
-
-        coverage_pct = result.get("coverage_pct", 0)
-        frames_analyzable = result.get("frames_analyzable", 0)
-        frames_skipped = result.get("frames_skipped", 0)
-        coverage_html = ""
-        if frames_analyzable > 0 or frames_skipped > 0:
-            coverage_html = (
-                f"<div class='coverage-stat'>"
-                f"Analyzed {frames_analyzable} of {frames_analyzable + frames_skipped} frames "
-                f"({coverage_pct}% had clear visibility)"
-                f"</div>"
-            )
-
-        score_display = score if score is not None else "—"
+            issues_html = "<div class='no-issues'>✓ No major issues detected</div>"
 
         st.markdown(f"""
         <div class='score-hero'>
           <div>
             <div class='score-label'>Final Score</div>
             <div>
-              <span class='score-value'>{score_display}</span>
+              <span class='score-value'>{score}</span>
               <span class='score-suffix'>/100</span>
             </div>
             <span class='score-band {band_class}'>{band_label}</span>
-            {coverage_html}
           </div>
           <div class='issues-block'>
             <h4>Top Issues</h4>
@@ -505,8 +593,6 @@ if st.session_state.analysis_result:
               <span class='legend-dot' style='background:#22c55e'></span>passed
               &nbsp;
               <span class='legend-dot' style='background:#ef4444'></span>needs work
-              &nbsp;
-              <span class='legend-dot' style='background:#9ca3af'></span>not visible
             </div>
           </div>
           <div class='annotated-wrap'>
@@ -519,14 +605,13 @@ if st.session_state.analysis_result:
 
         st.markdown("</div></div>", unsafe_allow_html=True)
 
-    # Step grid
+    # ===== Step grid (3 columns) =====
     steps = result.get("steps") or []
     step_imgs = result.get("step_image_paths") or {}
 
     if steps:
         st.markdown("## Step-by-Step Breakdown")
-        st.caption("Each card zooms into the body part being checked. "
-                   "Gray cards mean the body part was not visible enough to evaluate.")
+        st.caption("Each card zooms into the body part being checked.")
 
         for i in range(0, len(steps), 3):
             cols = st.columns(3)
@@ -535,83 +620,56 @@ if st.session_state.analysis_result:
                     continue
                 s = steps[i + j]
                 step_num = s["step"]
-                evaluable = s.get("evaluable", True)
                 with col:
-                    if not evaluable:
-                        st.markdown(f"""
-                        <div class='step-card noeval'>
-                          <div class='step-header'>
-                            <div class='step-name'>Step {step_num}: {s['name']}</div>
-                            <div class='step-status-icon'>⚫</div>
-                          </div>
-                          <div class='step-score-row'>
-                            <div>
-                              <span class='step-score-big noeval'>—</span>
-                              <span class='step-score-suffix'>/100</span>
-                            </div>
-                            <div class='step-fail-rate'>Not evaluable</div>
-                          </div>
-                          <div class='noeval-placeholder'>
-                            <div class='noeval-placeholder-icon'>👁️</div>
-                            <div>Body part not visible</div>
-                          </div>
-                          <div class='step-noeval-msg'>
-                            <strong>Cannot evaluate:</strong> {s.get('issue', 'body part not visible in frame')}
-                          </div>
-                          <div class='step-cue'>
-                            <strong>Cue:</strong> {s['cue']}
-                          </div>
+                    passed = s["passed_overall"]
+                    pf_class = "passed" if passed else "failed"
+                    score_class = "pass" if passed else "fail"
+                    icon = "✅" if passed else "⚠️"
+
+                    st.markdown(f"""
+                    <div class='step-card {pf_class}'>
+                      <div class='step-header'>
+                        <div class='step-name'>Step {step_num}: {s['name']}</div>
+                        <div class='step-status-icon'>{icon}</div>
+                      </div>
+                      <div class='step-score-row'>
+                        <div>
+                          <span class='step-score-big {score_class}'>{s['average_score']}</span>
+                          <span class='step-score-suffix'>/100</span>
                         </div>
-                        """, unsafe_allow_html=True)
-                    else:
-                        passed = s["passed_overall"]
-                        pf_class = "passed" if passed else "failed"
-                        score_class = "pass" if passed else "fail"
-                        icon = "✅" if passed else "⚠️"
+                        <div class='step-fail-rate'>
+                          Failed in {s['fail_rate_percent']}% of frames
+                        </div>
+                      </div>
+                      <div class='step-image-wrap'>
+                    """, unsafe_allow_html=True)
 
-                        st.markdown(f"""
-                        <div class='step-card {pf_class}'>
-                          <div class='step-header'>
-                            <div class='step-name'>Step {step_num}: {s['name']}</div>
-                            <div class='step-status-icon'>{icon}</div>
-                          </div>
-                          <div class='step-score-row'>
-                            <div>
-                              <span class='step-score-big {score_class}'>{s['average_score']}</span>
-                              <span class='step-score-suffix'>/100</span>
-                            </div>
-                            <div class='step-fail-rate'>
-                              Failed in {s['fail_rate_percent']}% of frames
-                            </div>
-                          </div>
-                          <div class='step-image-wrap'>
-                        """, unsafe_allow_html=True)
+                    img_key = f"step_{step_num}"
+                    img_path = step_imgs.get(img_key)
+                    if img_path and os.path.exists(img_path):
+                        st.image(img_path)
 
-                        img_key = f"step_{step_num}"
-                        img_path = step_imgs.get(img_key)
-                        if img_path and os.path.exists(img_path):
-                            st.image(img_path)
+                    st.markdown("</div>", unsafe_allow_html=True)
 
-                        st.markdown("</div>", unsafe_allow_html=True)
-
-                        if s["issue"]:
-                            st.markdown(
-                                f"<div class='step-issue'><strong>Issue:</strong> {s['issue']}</div>",
-                                unsafe_allow_html=True,
-                            )
-                        else:
-                            st.markdown(
-                                "<div class='step-passed-msg'><strong>✓</strong> Looks good for this step.</div>",
-                                unsafe_allow_html=True,
-                            )
+                    if s["issue"]:
                         st.markdown(
-                            f"<div class='step-cue'><strong>Cue:</strong> {s['cue']}</div>",
+                            f"<div class='step-issue'><strong>Issue:</strong> {s['issue']}</div>",
                             unsafe_allow_html=True,
                         )
-                        st.markdown("</div>", unsafe_allow_html=True)
+                    else:
+                        st.markdown(
+                            "<div class='step-passed-msg'><strong>✓</strong> Looks good for this step.</div>",
+                            unsafe_allow_html=True,
+                        )
+                    st.markdown(
+                        f"<div class='step-cue'><strong>Cue:</strong> {s['cue']}</div>",
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown("</div>", unsafe_allow_html=True)
 
+    # ===== Final feedback =====
     st.markdown("## Coach's Feedback")
-    st.caption("Generated based on the steps that could be evaluated.")
+    st.caption("Generated based on your step-by-step report.")
     st.text_area(
         "Feedback",
         value=st.session_state.gemini_feedback or "No feedback generated.",
@@ -620,4 +678,4 @@ if st.session_state.analysis_result:
     )
 
 elif not st.session_state.video_path:
-    st.info("👆 Upload a video or take a photo above, then click **Analyze Pose**.")
+    st.info("👆 Upload a Tadasana video above, then click **Analyze Pose**.")
