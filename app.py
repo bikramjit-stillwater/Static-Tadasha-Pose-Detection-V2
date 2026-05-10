@@ -146,12 +146,17 @@ header[data-testid="stHeader"] {height: 0; visibility: hidden;}
 }
 .step-card.passed { border-left: 3px solid #10b981; }
 .step-card.failed { border-left: 3px solid #ef4444; }
+.step-card.notvisible {
+    border-left: 3px solid #9ca3af;
+    background: #fafafa;
+}
 
 .step-header {
     display: flex; justify-content: space-between; align-items: center;
     margin-bottom: 0.5rem;
 }
 .step-name { font-size: 0.9rem; font-weight: 600; color: #0f172a; line-height: 1.2; }
+.step-card.notvisible .step-name { color: #6b7280; }
 .step-status-icon { font-size: 1.1rem; }
 
 .step-score-row {
@@ -162,6 +167,7 @@ header[data-testid="stHeader"] {height: 0; visibility: hidden;}
 .step-score-big { font-size: 1.4rem; font-weight: 700; line-height: 1; }
 .step-score-big.pass { color: #10b981; }
 .step-score-big.fail { color: #ef4444; }
+.step-score-big.notvisible { color: #9ca3af; }
 .step-score-suffix { font-size: 0.75rem; color: #94a3b8; }
 .step-fail-rate { font-size: 0.7rem; color: #94a3b8; }
 
@@ -191,6 +197,12 @@ header[data-testid="stHeader"] {height: 0; visibility: hidden;}
     background: #f0fdf4; border-left: 2px solid #10b981;
     padding: 0.45rem 0.6rem; border-radius: 4px;
     font-size: 0.75rem; color: #166534; margin-bottom: 0.35rem;
+}
+.step-notvisible-msg {
+    background: #f3f4f6; border-left: 2px solid #9ca3af;
+    padding: 0.45rem 0.6rem; border-radius: 4px;
+    font-size: 0.75rem; color: #4b5563; line-height: 1.4;
+    margin-bottom: 0.35rem;
 }
 .step-cue {
     background: #f8fafc; border-left: 2px solid #3b82f6;
@@ -319,7 +331,7 @@ frames_dir = get_output_dir("extracted_frames")
 
 for key, default in [
     ("video_path", None),
-    ("input_mode", None),  # "video" or "photo"
+    ("input_mode", None),
     ("analysis_result", None),
     ("gemini_feedback", None),
     ("capture_done", False),
@@ -388,10 +400,8 @@ if st.session_state.video_path and not st.session_state.analysis_result:
         with st.spinner("Analyzing pose and generating feedback..."):
             try:
                 if is_image(st.session_state.video_path):
-                    # PHOTO path - use the new analyze_image function
                     result = analyze_image(st.session_state.video_path, frames_dir)
                 else:
-                    # VIDEO path
                     result = analyze_video(st.session_state.video_path, frames_dir)
 
                 feedback_text = get_gemini_feedback(
@@ -467,6 +477,8 @@ if st.session_state.analysis_result:
               <span class='legend-dot' style='background:#22c55e'></span>passed
               &nbsp;
               <span class='legend-dot' style='background:#ef4444'></span>needs work
+              &nbsp;
+              <span class='legend-dot' style='background:#9ca3af'></span>not visible
             </div>
           </div>
           <div class='annotated-wrap'>
@@ -485,7 +497,8 @@ if st.session_state.analysis_result:
 
     if steps:
         st.markdown("## Step-by-Step Breakdown")
-        st.caption("Each card zooms into the body part being checked.")
+        st.caption("Each card zooms into the body part being checked. "
+                   "Gray cards mean the body part wasn't visible.")
 
         for i in range(0, len(steps), 3):
             cols = st.columns(3)
@@ -494,56 +507,90 @@ if st.session_state.analysis_result:
                     continue
                 s = steps[i + j]
                 step_num = s["step"]
+                not_visible = s.get("not_visible", False)
                 with col:
-                    passed = s["passed_overall"]
-                    pf_class = "passed" if passed else "failed"
-                    score_class = "pass" if passed else "fail"
-                    icon = "✅" if passed else "⚠️"
+                    if not_visible:
+                        # Body part not visible - gray card, score 0, clear message
+                        st.markdown(f"""
+                        <div class='step-card notvisible'>
+                          <div class='step-header'>
+                            <div class='step-name'>Step {step_num}: {s['name']}</div>
+                            <div class='step-status-icon'>👁️</div>
+                          </div>
+                          <div class='step-score-row'>
+                            <div>
+                              <span class='step-score-big notvisible'>0</span>
+                              <span class='step-score-suffix'>/100</span>
+                            </div>
+                            <div class='step-fail-rate'>Not visible</div>
+                          </div>
+                          <div class='step-image-wrap'>
+                        """, unsafe_allow_html=True)
 
-                    # For photo mode, "Failed in X% of frames" makes no sense - use simpler label
-                    if mode == "photo":
-                        rate_label = "Pass" if passed else "Needs work"
-                    else:
-                        rate_label = f"Failed in {s['fail_rate_percent']}% of frames"
+                        img_key = f"step_{step_num}"
+                        img_path = step_imgs.get(img_key)
+                        if img_path and os.path.exists(img_path):
+                            st.image(img_path)
 
-                    st.markdown(f"""
-                    <div class='step-card {pf_class}'>
-                      <div class='step-header'>
-                        <div class='step-name'>Step {step_num}: {s['name']}</div>
-                        <div class='step-status-icon'>{icon}</div>
-                      </div>
-                      <div class='step-score-row'>
-                        <div>
-                          <span class='step-score-big {score_class}'>{s['average_score']}</span>
-                          <span class='step-score-suffix'>/100</span>
+                        st.markdown(f"""
+                          </div>
+                          <div class='step-notvisible-msg'>
+                            <strong>Cannot evaluate:</strong> {s.get('issue') or 'body part not visible in the frame'}
+                          </div>
+                          <div class='step-cue'>
+                            <strong>Cue:</strong> {s['cue']}
+                          </div>
                         </div>
-                        <div class='step-fail-rate'>{rate_label}</div>
-                      </div>
-                      <div class='step-image-wrap'>
-                    """, unsafe_allow_html=True)
-
-                    img_key = f"step_{step_num}"
-                    img_path = step_imgs.get(img_key)
-                    if img_path and os.path.exists(img_path):
-                        st.image(img_path)
-
-                    st.markdown("</div>", unsafe_allow_html=True)
-
-                    if s["issue"]:
-                        st.markdown(
-                            f"<div class='step-issue'><strong>Issue:</strong> {s['issue']}</div>",
-                            unsafe_allow_html=True,
-                        )
+                        """, unsafe_allow_html=True)
                     else:
+                        passed = s["passed_overall"]
+                        pf_class = "passed" if passed else "failed"
+                        score_class = "pass" if passed else "fail"
+                        icon = "✅" if passed else "⚠️"
+
+                        if mode == "photo":
+                            rate_label = "Pass" if passed else "Needs work"
+                        else:
+                            rate_label = f"Failed in {s['fail_rate_percent']}% of frames"
+
+                        st.markdown(f"""
+                        <div class='step-card {pf_class}'>
+                          <div class='step-header'>
+                            <div class='step-name'>Step {step_num}: {s['name']}</div>
+                            <div class='step-status-icon'>{icon}</div>
+                          </div>
+                          <div class='step-score-row'>
+                            <div>
+                              <span class='step-score-big {score_class}'>{s['average_score']}</span>
+                              <span class='step-score-suffix'>/100</span>
+                            </div>
+                            <div class='step-fail-rate'>{rate_label}</div>
+                          </div>
+                          <div class='step-image-wrap'>
+                        """, unsafe_allow_html=True)
+
+                        img_key = f"step_{step_num}"
+                        img_path = step_imgs.get(img_key)
+                        if img_path and os.path.exists(img_path):
+                            st.image(img_path)
+
+                        st.markdown("</div>", unsafe_allow_html=True)
+
+                        if s["issue"]:
+                            st.markdown(
+                                f"<div class='step-issue'><strong>Issue:</strong> {s['issue']}</div>",
+                                unsafe_allow_html=True,
+                            )
+                        else:
+                            st.markdown(
+                                "<div class='step-passed-msg'><strong>✓</strong> Looks good for this step.</div>",
+                                unsafe_allow_html=True,
+                            )
                         st.markdown(
-                            "<div class='step-passed-msg'><strong>✓</strong> Looks good for this step.</div>",
+                            f"<div class='step-cue'><strong>Cue:</strong> {s['cue']}</div>",
                             unsafe_allow_html=True,
                         )
-                    st.markdown(
-                        f"<div class='step-cue'><strong>Cue:</strong> {s['cue']}</div>",
-                        unsafe_allow_html=True,
-                    )
-                    st.markdown("</div>", unsafe_allow_html=True)
+                        st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("## Coach's Feedback")
     st.caption("Generated based on your step-by-step report.")
