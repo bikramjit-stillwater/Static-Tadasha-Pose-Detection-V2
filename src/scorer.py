@@ -152,37 +152,28 @@ def check_shoulders_arms(features):
     if worst_v <= -0.25:
         raised_score = 100.0
     elif worst_v <= 0.0:
-        # Between shoulder and ideal: partial credit
-        raised_score = score_value(0.0 - worst_v, 0.25, 0.0, "quadratic")
-        # Note: this gives 0 at worst_v=0.0, 100 at worst_v=-0.25
-        # Need different formula - reverse it:
-        # The closer to -0.25 (or below), the better
         raised_score = round(100.0 * ((-worst_v) / 0.25) ** 2, 1)
     else:
-        # Wrist below shoulder - arms hanging - NOT Tadasana
         raised_score = 0.0
 
     # (b) Elbows straight
     e_left = features["left_elbow_angle"]
     e_right = features["right_elbow_angle"]
     worst_elbow = min(e_left, e_right)
-    # Ideal: 165-180 (mostly straight). Bad: < 130
     if worst_elbow >= 165:
         elbow_score = 100.0
     else:
         elbow_score = score_value(165 - worst_elbow, 0.0, 35.0, "quadratic")
 
-    # (c) Arms close together (horizontal distance between wrists, normalized)
+    # (c) Arms close together
     arm_closeness = features["arm_closeness"]
-    # Ideal: <= 0.05 (wrists touching/very close)
-    # Acceptable: <= 0.20 (parallel arms shoulder-width)
     closeness_score = score_value(arm_closeness, 0.05, 0.40, "quadratic")
 
-    # (d) Symmetry (left vs right arm height difference)
+    # (d) Symmetry
     asymmetry = abs(v_left - v_right)
     symmetry_score = score_value(asymmetry, 0.04, 0.20, "quadratic")
 
-    # Weighted combine (raised position is most important)
+    # Weighted combine
     score = round(
         raised_score * 0.45 +
         elbow_score * 0.25 +
