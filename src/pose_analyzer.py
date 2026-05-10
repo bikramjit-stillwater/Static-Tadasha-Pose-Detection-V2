@@ -1,19 +1,11 @@
 """
 Pose analyzer for arms-overhead Tadasana.
 
-Per analysed video:
-  - runs MediaPipe on every frame
-  - builds 14 features (incl. arm_drop, elbow angles, arm closeness, symmetry)
-  - validates using scorer.validate_tadasana
-  - picks the best frame (only if score >= MIN_QUALITY_SCORE, else flags low quality)
-  - generates 7 output images:
-      * annotated_full.jpg          (skeleton overlay, green=pass, red=fail)
-      * step1_stance.jpg            (cropped feet)
-      * step2_body_balance.jpg      (full body)
-      * step3_legs_knees.jpg        (cropped legs)
-      * step4_spine.jpg             (cropped torso)
-      * step5_shoulders_arms.jpg    (cropped upper body + raised arms)
-      * step6_head_neck.jpg         (cropped head)
+Two entry points:
+  - analyze_video(path)  : process a video frame by frame, aggregate scores
+  - analyze_image(path)  : process a single photo (same scoring + image generation)
+
+Both produce the same result dict structure for the UI.
 """
 
 import cv2
@@ -73,33 +65,26 @@ def build_features(lms, w, h):
     ra = extract_xy(lms, w, h, POSE_LANDMARKS["right_ankle"])
     nose = extract_xy(lms, w, h, POSE_LANDMARKS["nose"])
 
-    # Tilts
     shoulder_tilt = abs(ls[1] - rs[1]) / h
     hip_tilt = abs(lh[1] - rh[1]) / h
 
-    # Body lean
     body_center_x = ((ls[0] + rs[0]) / 2 + (lh[0] + rh[0]) / 2) / 2
     ankle_center_x = (la[0] + ra[0]) / 2
     body_lean = abs(body_center_x - ankle_center_x) / w
 
-    # Knee angles
     left_knee_bend = calculate_angle(lh, lk, la)
     right_knee_bend = calculate_angle(rh, rk, ra)
 
-    # Stance ratio
     ankle_distance = abs(la[0] - ra[0])
     hip_distance = abs(lh[0] - rh[0])
     stance_ratio = ankle_distance / hip_distance if hip_distance > 1 else 1.0
 
-    # Spine tilt
     mid_shoulders = midpoint(ls, rs)
     mid_hips = midpoint(lh, rh)
     spine_tilt = angle_from_vertical(mid_shoulders, mid_hips)
 
-    # Head offset
     head_offset = abs(nose[0] - mid_shoulders[0]) / w
 
-    # Arm vertical drop (negative = wrist above shoulder = arms raised)
     shoulder_y = (ls[1] + rs[1]) / 2
     ankle_y = (la[1] + ra[1]) / 2
     body_height = ankle_y - shoulder_y
@@ -110,11 +95,8 @@ def build_features(lms, w, h):
         left_arm_drop = 0.5
         right_arm_drop = 0.5
 
-    # Elbow angles (shoulder-elbow-wrist)
     left_elbow_angle = calculate_angle(ls, lel, lw_pt)
     right_elbow_angle = calculate_angle(rs, rel, rw_pt)
-
-    # Arm closeness (horizontal distance between wrists, normalized by image width)
     arm_closeness = abs(lw_pt[0] - rw_pt[0]) / w
 
     return {
@@ -138,7 +120,6 @@ def build_features(lms, w, h):
 # Image generation - crops + annotated full image
 # -----------------------------------------------------------------------------
 def _crop_safe(img, x1, y1, x2, y2):
-    """Crop img[y1:y2, x1:x2] safely, clamping to image bounds."""
     h, w = img.shape[:2]
     x1 = max(0, int(x1)); y1 = max(0, int(y1))
     x2 = min(w, int(x2)); y2 = min(h, int(y2))
@@ -148,7 +129,6 @@ def _crop_safe(img, x1, y1, x2, y2):
 
 
 def _crop_with_padding(img, points, padding_x_frac=0.15, padding_y_frac=0.15):
-    """Crop a bounding box around given (x,y) points with padding."""
     h, w = img.shape[:2]
     xs = [p[0] for p in points]
     ys = [p[1] for p in points]
@@ -167,18 +147,14 @@ def generate_step_images(frame, lms, step_results, save_dir):
     h, w = frame.shape[:2]
     paths = {}
 
-    # Get pixel positions of every relevant landmark
     pts = {name: extract_xy(lms, w, h, idx)
            for name, idx in POSE_LANDMARKS.items()}
 
-    # Step -> pass/fail map
     step_passed = {s["step"]: s["passed"] for s in step_results}
 
-    # ----- Annotated full image -----
     annotated = frame.copy()
     GREEN = (0, 200, 0)
     RED = (0, 0, 220)
-    GREY = (180, 180, 180)
 
     def line(p1, p2, color, thick=4):
         cv2.line(annotated,
@@ -189,7 +165,7 @@ def generate_step_images(frame, lms, step_results, save_dir):
     def dot(p, color, r=6):
         cv2.circle(annotated, (int(p[0]), int(p[1])), r, color, -1, cv2.LINE_AA)
 
-    # Step 5 (Shoulders & Arms) - shoulder-elbow-wrist lines
+    # Step 5 (Shoulders & Arms)
     c5 = GREEN if step_passed.get(5) else RED
     line(pts["left_shoulder"], pts["left_elbow"], c5)
     line(pts["left_elbow"], pts["left_wrist"], c5)
@@ -197,13 +173,13 @@ def generate_step_images(frame, lms, step_results, save_dir):
     line(pts["right_elbow"], pts["right_wrist"], c5)
     line(pts["left_shoulder"], pts["right_shoulder"], c5)
 
-    # Step 4 (Spine) - shoulder-hip line
+    # Step 4 (Spine)
     c4 = GREEN if step_passed.get(4) else RED
     mid_sh = midpoint(pts["left_shoulder"], pts["right_shoulder"])
     mid_hp = midpoint(pts["left_hip"], pts["right_hip"])
     line(mid_sh, mid_hp, c4, thick=5)
 
-    # Step 3 (Legs & Knees) - hip-knee-ankle
+    # Step 3 (Legs & Knees)
     c3 = GREEN if step_passed.get(3) else RED
     line(pts["left_hip"], pts["left_knee"], c3)
     line(pts["left_knee"], pts["left_ankle"], c3)
@@ -211,15 +187,14 @@ def generate_step_images(frame, lms, step_results, save_dir):
     line(pts["right_knee"], pts["right_ankle"], c3)
     line(pts["left_hip"], pts["right_hip"], c3)
 
-    # Step 1 (Stance) - foot-to-foot line
+    # Step 1 (Stance)
     c1 = GREEN if step_passed.get(1) else RED
     line(pts["left_ankle"], pts["right_ankle"], c1, thick=3)
 
-    # Step 6 (Head) - dot on nose
+    # Step 6 (Head)
     c6 = GREEN if step_passed.get(6) else RED
     dot(pts["nose"], c6, r=10)
 
-    # All joint dots
     for name in ["left_shoulder", "right_shoulder", "left_elbow", "right_elbow",
                  "left_wrist", "right_wrist", "left_hip", "right_hip",
                  "left_knee", "right_knee", "left_ankle", "right_ankle"]:
@@ -229,7 +204,7 @@ def generate_step_images(frame, lms, step_results, save_dir):
     cv2.imwrite(annotated_path, annotated)
     paths["annotated"] = annotated_path
 
-    # ----- Step 1: Stance (feet) -----
+    # Step crops
     feet_pts = [pts["left_ankle"], pts["right_ankle"],
                 pts["left_heel"], pts["right_heel"],
                 pts["left_foot_index"], pts["right_foot_index"]]
@@ -237,11 +212,9 @@ def generate_step_images(frame, lms, step_results, save_dir):
     p1 = os.path.join(save_dir, "step1_stance.jpg")
     cv2.imwrite(p1, crop); paths["step_1"] = p1
 
-    # ----- Step 2: Body Balance (full body) -----
     p2 = os.path.join(save_dir, "step2_body_balance.jpg")
     cv2.imwrite(p2, annotated); paths["step_2"] = p2
 
-    # ----- Step 3: Legs & Knees (hips down to ankles) -----
     leg_pts = [pts["left_hip"], pts["right_hip"],
                pts["left_knee"], pts["right_knee"],
                pts["left_ankle"], pts["right_ankle"]]
@@ -249,14 +222,12 @@ def generate_step_images(frame, lms, step_results, save_dir):
     p3 = os.path.join(save_dir, "step3_legs_knees.jpg")
     cv2.imwrite(p3, crop); paths["step_3"] = p3
 
-    # ----- Step 4: Spine (shoulders down to hips) -----
     spine_pts = [pts["left_shoulder"], pts["right_shoulder"],
                  pts["left_hip"], pts["right_hip"]]
     crop = _crop_with_padding(annotated, spine_pts, 0.18, 0.05)
     p4 = os.path.join(save_dir, "step4_spine.jpg")
     cv2.imwrite(p4, crop); paths["step_4"] = p4
 
-    # ----- Step 5: Shoulders & Arms (need to include raised arms) -----
     arm_pts = [pts["left_shoulder"], pts["right_shoulder"],
                pts["left_elbow"], pts["right_elbow"],
                pts["left_wrist"], pts["right_wrist"],
@@ -265,7 +236,6 @@ def generate_step_images(frame, lms, step_results, save_dir):
     p5 = os.path.join(save_dir, "step5_shoulders_arms.jpg")
     cv2.imwrite(p5, crop); paths["step_5"] = p5
 
-    # ----- Step 6: Head & Neck -----
     head_pts = [pts["nose"], pts["left_shoulder"], pts["right_shoulder"]]
     crop = _crop_with_padding(annotated, head_pts, 0.15, 0.20)
     p6 = os.path.join(save_dir, "step6_head_neck.jpg")
@@ -275,7 +245,7 @@ def generate_step_images(frame, lms, step_results, save_dir):
 
 
 # -----------------------------------------------------------------------------
-# Aggregation across frames
+# Aggregation across frames (for video)
 # -----------------------------------------------------------------------------
 def aggregate_step_reports(all_reports):
     if not all_reports:
@@ -324,8 +294,30 @@ def aggregate_step_reports(all_reports):
     }
 
 
+def _single_frame_to_aggregated(report):
+    """Convert a single-frame validation result into the same shape as a
+    multi-frame aggregated result. Used for photo analysis."""
+    aggregated_steps = []
+    for s in report["steps"]:
+        aggregated_steps.append({
+            "step": s["step"],
+            "name": s["name"],
+            "cue": s["cue"],
+            "weight": s["weight"],
+            "average_score": round(s["score"], 1),
+            "fail_rate_percent": 0.0 if s["passed"] else 100.0,
+            "issue": s["issue"],
+            "passed_overall": s["passed"],
+        })
+    return {
+        "final_score": report["final_score"],
+        "steps": aggregated_steps,
+        "issues": report["issues"],
+    }
+
+
 # -----------------------------------------------------------------------------
-# Main entry
+# Video analysis
 # -----------------------------------------------------------------------------
 def analyze_video(video_path, save_frames_dir=None):
     detector = PoseDetector()
@@ -375,7 +367,6 @@ def analyze_video(video_path, save_frames_dir=None):
 
     aggregated = aggregate_step_reports(all_reports)
 
-    # Generate the 7 images from the best frame
     step_image_paths = {}
     annotated_path = None
     best_frame_path = None
@@ -387,7 +378,6 @@ def analyze_video(video_path, save_frames_dir=None):
         )
         annotated_path = step_image_paths.get("annotated")
 
-    # Quality warning if best frame was not good enough
     low_quality = best_score < MIN_QUALITY_SCORE
     low_quality_msg = None
     if low_quality:
@@ -397,6 +387,90 @@ def analyze_video(video_path, save_frames_dir=None):
             "The pose may not have been clearly Tadasana. "
             "For more accurate results, please re-record with: full body in frame, "
             "good lighting, and hold the pose steadily for a few seconds."
+        )
+
+    return {
+        "final_score": aggregated["final_score"],
+        "issues": aggregated["issues"],
+        "steps": aggregated["steps"],
+        "best_frame_path": best_frame_path,
+        "annotated_path": annotated_path,
+        "step_image_paths": step_image_paths,
+        "low_quality_warning": low_quality,
+        "low_quality_message": low_quality_msg,
+    }
+
+
+# -----------------------------------------------------------------------------
+# Photo analysis (NEW) - same scoring on a single image
+# -----------------------------------------------------------------------------
+def analyze_image(image_path, save_frames_dir=None):
+    """
+    Analyze a single photo using the same rule engine as videos.
+    Returns the same result-dict shape so the UI works identically.
+    """
+    detector = PoseDetector()
+    frame = cv2.imread(image_path)
+
+    if frame is None:
+        return {
+            "final_score": 0,
+            "issues": ["Could not read the uploaded image"],
+            "steps": [],
+            "best_frame_path": None,
+            "annotated_path": None,
+            "step_image_paths": {},
+            "low_quality_warning": True,
+            "low_quality_message": "The image file could not be read. Please try a different photo.",
+        }
+
+    h, w = frame.shape[:2]
+    if save_frames_dir:
+        os.makedirs(save_frames_dir, exist_ok=True)
+
+    results = detector.detect(frame)
+
+    if not results.pose_landmarks:
+        return {
+            "final_score": 0,
+            "issues": ["No body pose detected in the photo"],
+            "steps": [],
+            "best_frame_path": image_path,
+            "annotated_path": None,
+            "step_image_paths": {},
+            "low_quality_warning": True,
+            "low_quality_message": (
+                "No body pose was detected in this photo. Please retake with: "
+                "good lighting, full body in frame, and clear contrast against the background."
+            ),
+        }
+
+    lms = results.pose_landmarks.landmark
+    features = build_features(lms, w, h)
+    report = validate_tadasana(features)
+
+    # Generate the 7 images from this single photo
+    step_image_paths = {}
+    annotated_path = None
+    best_frame_path = None
+    if save_frames_dir:
+        best_frame_path = os.path.join(save_frames_dir, "best_pose_frame.jpg")
+        cv2.imwrite(best_frame_path, frame.copy())
+        step_image_paths = generate_step_images(
+            frame, lms, report["steps"], save_frames_dir
+        )
+        annotated_path = step_image_paths.get("annotated")
+
+    aggregated = _single_frame_to_aggregated(report)
+
+    low_quality = aggregated["final_score"] < MIN_QUALITY_SCORE
+    low_quality_msg = None
+    if low_quality:
+        low_quality_msg = (
+            f"This photo scored only {aggregated['final_score']}/100. "
+            "The pose may not have been clearly Tadasana, or the body wasn't fully visible. "
+            "Try retaking the photo with: full body in frame, good lighting, "
+            "and the pose held clearly."
         )
 
     return {
