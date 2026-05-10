@@ -378,15 +378,6 @@ header[data-testid="stHeader"] {height: 0; visibility: hidden;}
     border-radius: 8px;
 }
 
-/* Captured image preview */
-.input-preview [data-testid="stImage"] img {
-    max-height: 320px !important;
-    max-width: 100% !important;
-    width: auto !important;
-    object-fit: contain !important;
-    border-radius: 8px;
-}
-
 /* Alerts */
 [data-testid="stAlert"] {
     padding: 0.55rem 0.85rem !important;
@@ -469,7 +460,7 @@ def score_band(score: int):
 st.markdown("""
 <div class='page-header'>
   <h1>🧘 Tadasana Pose Analysis</h1>
-  <div class='subtitle'>Upload your video. Get a step-by-step alignment report with personalized feedback.</div>
+  <div class='subtitle'>Upload your Tadasana video and get a step-by-step alignment report with personalized feedback.</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -489,30 +480,29 @@ for key, default in [
         st.session_state[key] = default
 
 # =============================================================================
-# Upload section
+# Upload section - VIDEO ONLY
 # =============================================================================
 if not st.session_state.analysis_result:
-    st.markdown("## Upload Your Pose")
+    st.markdown("## Upload Your Pose Video")
 
-    in1, in2 = st.columns(2)
-    with in1:
-        st.markdown("**Option 1 — Upload video**")
+    upload_col, _ = st.columns([2, 1])
+    with upload_col:
         uploaded_video = st.file_uploader(
-            "video",
+            "Select a Tadasana video file (MP4, MOV, AVI, or MKV)",
             type=["mp4", "mov", "avi", "mkv"],
-            label_visibility="collapsed",
         )
-    with in2:
-        st.markdown("**Option 2 — Take snapshot**")
-        camera_file = st.camera_input("camera", label_visibility="collapsed")
+        st.caption(
+            "Tip: record yourself in good lighting with your full body in frame, "
+            "and hold the pose steady for a few seconds."
+        )
 else:
     uploaded_video = None
-    camera_file = None
     if st.button("← Analyze a different video"):
         for k in ["video_path", "analysis_result", "gemini_feedback", "capture_done"]:
             st.session_state[k] = None
         st.rerun()
 
+# Save uploaded video
 if uploaded_video is not None:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     save_path = os.path.join(recordings_dir, f"uploaded_{timestamp}.mp4")
@@ -522,41 +512,17 @@ if uploaded_video is not None:
     st.session_state.capture_done = True
     st.success("✓ Video uploaded successfully.")
 
-if camera_file is not None:
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    image_path = os.path.join(frames_dir, f"captured_pose_{timestamp}.jpg")
-    with open(image_path, "wb") as f:
-        f.write(camera_file.read())
-    st.session_state.video_path = image_path
-    st.session_state.capture_done = True
-    st.success("✓ Snapshot captured successfully.")
-
 # Preview + analyze
 if st.session_state.video_path and not st.session_state.analysis_result:
     st.markdown("### Preview")
     pv1, _ = st.columns([2, 1])
     with pv1:
-        if st.session_state.video_path.lower().endswith((".mp4", ".mov", ".avi", ".mkv")):
-            st.video(st.session_state.video_path)
-        else:
-            st.markdown("<div class='input-preview'>", unsafe_allow_html=True)
-            st.image(st.session_state.video_path)
-            st.markdown("</div>", unsafe_allow_html=True)
+        st.video(st.session_state.video_path)
 
     if st.button("🔍 Analyze Pose", type="primary"):
         with st.spinner("Analyzing pose and generating feedback..."):
             try:
-                if st.session_state.video_path.lower().endswith((".jpg", ".jpeg", ".png")):
-                    result = {
-                        "final_score": 75,
-                        "issues": ["Snapshot mode: upload a full video for accurate scoring"],
-                        "steps": [], "best_frame_path": st.session_state.video_path,
-                        "annotated_path": None, "step_image_paths": {},
-                        "low_quality_warning": False, "low_quality_message": None,
-                    }
-                else:
-                    result = analyze_video(st.session_state.video_path, frames_dir)
-
+                result = analyze_video(st.session_state.video_path, frames_dir)
                 feedback_text = get_gemini_feedback(
                     result["final_score"], result["issues"],
                     steps=result.get("steps"),
@@ -712,4 +678,4 @@ if st.session_state.analysis_result:
     )
 
 elif not st.session_state.video_path:
-    st.info("👆 Upload a video or capture a snapshot above, then click **Analyze Pose**.")
+    st.info("👆 Upload a Tadasana video above, then click **Analyze Pose**.")
